@@ -11,14 +11,7 @@ from deezspot.libutils.utils import (
     link_is_valid,
     what_kind,
 )
-from deezspot.models import (
-    Track,
-    Album,
-    Playlist,
-    Preferences,
-    Smart,
-    Episode
-)
+from deezspot.models import Track, Album, Playlist, Preferences, Smart, Episode
 from deezspot.spotloader.__download__ import (
     DW_TRACK,
     DW_ALBUM,
@@ -34,9 +27,10 @@ from deezspot.libutils.others_settings import (
     stock_zip,
     method_save,
     is_thread,
-    stock_real_time_dl
+    stock_real_time_dl,
 )
 from deezspot.libutils.logging_utils import logger, ProgressReporter
+
 
 class SpoLogin:
     def __init__(
@@ -44,21 +38,25 @@ class SpoLogin:
         credentials_path: str,
         spotify_client_id: str = None,
         spotify_client_secret: str = None,
-        progress_callback = None,
-        silent: bool = False
+        progress_callback=None,
+        silent: bool = False,
     ) -> None:
         self.credentials_path = credentials_path
         self.spotify_client_id = spotify_client_id
         self.spotify_client_secret = spotify_client_secret
-        
+
         # Initialize Spotify API with credentials if provided
         if spotify_client_id and spotify_client_secret:
-            Spo.__init__(client_id=spotify_client_id, client_secret=spotify_client_secret)
+            Spo.__init__(
+                client_id=spotify_client_id, client_secret=spotify_client_secret
+            )
             logger.info("Initialized Spotify API with provided credentials")
-            
+
         # Configure progress reporting
-        self.progress_reporter = ProgressReporter(callback=progress_callback, silent=silent)
-        
+        self.progress_reporter = ProgressReporter(
+            callback=progress_callback, silent=silent
+        )
+
         self.__initialize_session()
 
     def report_progress(self, progress_data):
@@ -84,7 +82,8 @@ class SpoLogin:
             raise
 
     def download_track(
-        self, link_track,
+        self,
+        link_track,
         output_dir=stock_output,
         quality_download=stock_quality,
         recursive_quality=stock_recursive_quality,
@@ -99,14 +98,16 @@ class SpoLogin:
         initial_retry_delay=30,
         retry_delay_increase=30,
         max_retries=5,
-        convert_to=None
+        convert_to=None,
     ) -> Track:
         try:
             link_is_valid(link_track)
             ids = get_ids(link_track)
             song_metadata = tracking(ids)
-            
-            logger.info(f"Starting download for track: {song_metadata.get('music', 'Unknown')} - {song_metadata.get('artist', 'Unknown')}")
+
+            logger.info(
+                f"Starting download for track: {song_metadata.get('music', 'Unknown')} - {song_metadata.get('artist', 'Unknown')}"
+            )
 
             preferences = Preferences()
             preferences.real_time_dl = real_time_dl
@@ -140,7 +141,8 @@ class SpoLogin:
             raise e
 
     def download_album(
-        self, link_album,
+        self,
+        link_album,
         output_dir=stock_output,
         quality_download=stock_quality,
         recursive_quality=stock_recursive_quality,
@@ -156,7 +158,7 @@ class SpoLogin:
         initial_retry_delay=30,
         retry_delay_increase=30,
         max_retries=5,
-        convert_to=None
+        convert_to=None,
     ) -> Album:
         try:
             link_is_valid(link_album)
@@ -164,8 +166,10 @@ class SpoLogin:
             # Use stored credentials for API calls
             album_json = Spo.get_album(ids)
             song_metadata = tracking_album(album_json)
-            
-            logger.info(f"Starting download for album: {song_metadata.get('album', 'Unknown')} - {song_metadata.get('ar_album', 'Unknown')}")
+
+            logger.info(
+                f"Starting download for album: {song_metadata.get('album', 'Unknown')} - {song_metadata.get('ar_album', 'Unknown')}"
+            )
 
             preferences = Preferences()
             preferences.real_time_dl = real_time_dl
@@ -201,7 +205,8 @@ class SpoLogin:
             raise e
 
     def download_playlist(
-        self, link_playlist,
+        self,
+        link_playlist,
         output_dir=stock_output,
         quality_download=stock_quality,
         recursive_quality=stock_recursive_quality,
@@ -217,7 +222,7 @@ class SpoLogin:
         initial_retry_delay=30,
         retry_delay_increase=30,
         max_retries=5,
-        convert_to=None
+        convert_to=None,
     ) -> Playlist:
         try:
             link_is_valid(link_playlist)
@@ -226,22 +231,63 @@ class SpoLogin:
             song_metadata = []
             # Use stored credentials for API calls
             playlist_json = Spo.get_playlist(ids)
-            
-            logger.info(f"Starting download for playlist: {playlist_json.get('name', 'Unknown')}")
 
-            for track in playlist_json['tracks']['items']:
-                is_track = track['track']
+            logger.info(
+                f"Starting download for playlist: {playlist_json.get('name', 'Unknown')}"
+            )
+
+            # Extract playlist metadata
+            playlist_name = playlist_json.get("name", "Unknown Playlist")
+            total_tracks = playlist_json["tracks"]["total"]
+
+            # Prepare the m3u playlist file
+            playlist_m3u_dir = os.path.join(output_dir, "playlists")
+            os.makedirs(playlist_m3u_dir, exist_ok=True)
+            m3u_path = os.path.join(playlist_m3u_dir, f"{playlist_name}.m3u")
+            with open(m3u_path, "w", encoding="utf-8") as m3u_file:
+                m3u_file.write("#EXTM3U\n")
+
+            # Initial progress report
+            self.report_progress(
+                {
+                    "status": "initializing",
+                    "type": "playlist",
+                    "name": playlist_name,
+                    "total_tracks": total_tracks,
+                }
+            )
+
+            for track in playlist_json["tracks"]["items"]:
+                is_track = track.get("track")
                 if not is_track:
+                    c_song_metadata = f"The track is not available on Spotify :("
+                    song_metadata.append(c_song_metadata)
                     continue
-                external_urls = is_track['external_urls']
-                if not external_urls:
-                    c_song_metadata = f"The track \"{is_track['name']}\" is not available on Spotify :("
-                    logger.warning(f"Track not available: {is_track['name']}")
-                else:
-                    ids = get_ids(external_urls['spotify'])
-                    c_song_metadata = tracking(ids)
-                song_metadata.append(c_song_metadata)
 
+                external_urls = is_track.get("external_urls")
+                if not external_urls:
+                    track_name = is_track.get("name", "Unknown Track")
+                    c_song_metadata = (
+                        f'The track "{track_name}" is not available on Spotify :('
+                    )
+                    logger.warning(c_song_metadata)
+                    song_metadata.append(c_song_metadata)
+                    continue
+
+                # Track is available, get its ID
+                ids = get_ids(external_urls["spotify"])
+                try:
+                    c_song_metadata = tracking(ids)
+                    song_metadata.append(c_song_metadata)
+                except Exception as e:
+                    # Handle tracking failure
+                    track_name = is_track.get("name", "Unknown Track")
+                    logger.error(
+                        f"Failed to get metadata for track {track_name}: {str(e)}"
+                    )
+                    song_metadata.append(f"Failed to get metadata for {track_name}")
+
+            # Now create preferences and download
             preferences = Preferences()
             preferences.real_time_dl = real_time_dl
             preferences.link = link_playlist
@@ -265,18 +311,39 @@ class SpoLogin:
             preferences.convert_to = convert_to
 
             if not is_thread:
-                playlist = DW_PLAYLIST(preferences).dw()
+                try:
+                    playlist = DW_PLAYLIST(preferences).dw()
+                except Exception as e:
+                    logger.error(f"Playlist download failed: {str(e)}")
+                    # If we have any successful tracks in the playlist, still return it
+                    if hasattr(e, "playlist") and e.playlist and e.playlist.tracks:
+                        logger.info(
+                            f"Returning partial playlist with {len(e.playlist.tracks)} tracks"
+                        )
+                        return e.playlist
+                    raise
             else:
-                playlist = DW_PLAYLIST(preferences).dw2()
+                try:
+                    playlist = DW_PLAYLIST(preferences).dw2()
+                except Exception as e:
+                    logger.error(f"Playlist download failed: {str(e)}")
+                    # If we have any successful tracks in the playlist, still return it
+                    if hasattr(e, "playlist") and e.playlist and e.playlist.tracks:
+                        logger.info(
+                            f"Returning partial playlist with {len(e.playlist.tracks)} tracks"
+                        )
+                        return e.playlist
+                    raise
 
             return playlist
         except Exception as e:
             logger.error(f"Failed to download playlist: {str(e)}")
             traceback.print_exc()
-            raise e
+            raise
 
     def download_episode(
-        self, link_episode,
+        self,
+        link_episode,
         output_dir=stock_output,
         quality_download=stock_quality,
         recursive_quality=stock_recursive_quality,
@@ -291,7 +358,7 @@ class SpoLogin:
         initial_retry_delay=30,
         retry_delay_increase=30,
         max_retries=5,
-        convert_to=None
+        convert_to=None,
     ) -> Episode:
         try:
             link_is_valid(link_episode)
@@ -299,8 +366,10 @@ class SpoLogin:
             # Use stored credentials for API calls
             episode_json = Spo.get_episode(ids)
             episode_metadata = tracking_episode(ids)
-            
-            logger.info(f"Starting download for episode: {episode_metadata.get('name', 'Unknown')} - {episode_metadata.get('show', 'Unknown')}")
+
+            logger.info(
+                f"Starting download for episode: {episode_metadata.get('name', 'Unknown')} - {episode_metadata.get('show', 'Unknown')}"
+            )
 
             preferences = Preferences()
             preferences.real_time_dl = real_time_dl
@@ -334,8 +403,9 @@ class SpoLogin:
             raise e
 
     def download_artist(
-        self, link_artist,
-        album_type: str = 'album,single,compilation,appears_on',
+        self,
+        link_artist,
+        album_type: str = "album,single,compilation,appears_on",
         limit: int = 50,
         output_dir=stock_output,
         quality_download=stock_quality,
@@ -352,7 +422,7 @@ class SpoLogin:
         initial_retry_delay=30,
         retry_delay_increase=30,
         max_retries=5,
-        convert_to=None
+        convert_to=None,
     ):
         """
         Download all albums (or a subset based on album_type and limit) from an artist.
@@ -361,18 +431,22 @@ class SpoLogin:
             link_is_valid(link_artist)
             ids = get_ids(link_artist)
             discography = Spo.get_artist(ids, album_type=album_type, limit=limit)
-            albums = discography.get('items', [])
+            albums = discography.get("items", [])
             if not albums:
                 logger.warning("No albums found for the provided artist")
                 raise Exception("No albums found for the provided artist.")
-                
-            logger.info(f"Starting download for artist discography: {discography.get('name', 'Unknown')}")
-            
+
+            logger.info(
+                f"Starting download for artist discography: {discography.get('name', 'Unknown')}"
+            )
+
             downloaded_albums = []
             for album in albums:
-                album_url = album.get('external_urls', {}).get('spotify')
+                album_url = album.get("external_urls", {}).get("spotify")
                 if not album_url:
-                    logger.warning(f"No URL found for album: {album.get('name', 'Unknown')}")
+                    logger.warning(
+                        f"No URL found for album: {album.get('name', 'Unknown')}"
+                    )
                     continue
                 downloaded_album = self.download_album(
                     album_url,
@@ -391,7 +465,7 @@ class SpoLogin:
                     initial_retry_delay=initial_retry_delay,
                     retry_delay_increase=retry_delay_increase,
                     max_retries=max_retries,
-                    convert_to=convert_to
+                    convert_to=convert_to,
                 )
                 downloaded_albums.append(downloaded_album)
             return downloaded_albums
@@ -401,7 +475,8 @@ class SpoLogin:
             raise e
 
     def download_smart(
-        self, link,
+        self,
+        link,
         output_dir=stock_output,
         quality_download=stock_quality,
         recursive_quality=stock_recursive_quality,
@@ -416,7 +491,7 @@ class SpoLogin:
         initial_retry_delay=30,
         retry_delay_increase=30,
         max_retries=5,
-        convert_to=None
+        convert_to=None,
     ) -> Smart:
         try:
             link_is_valid(link)
@@ -426,7 +501,7 @@ class SpoLogin:
             if "spotify.com" in link:
                 source = "https://spotify.com"
             smart.source = source
-            
+
             logger.info(f"Starting smart download for: {link}")
 
             if "track/" in link:
@@ -446,7 +521,7 @@ class SpoLogin:
                     pad_tracks=pad_tracks,
                     initial_retry_delay=initial_retry_delay,
                     retry_delay_increase=retry_delay_increase,
-                    max_retries=max_retries
+                    max_retries=max_retries,
                 )
                 smart.type = "track"
                 smart.track = track
@@ -469,7 +544,7 @@ class SpoLogin:
                     pad_tracks=pad_tracks,
                     initial_retry_delay=initial_retry_delay,
                     retry_delay_increase=retry_delay_increase,
-                    max_retries=max_retries
+                    max_retries=max_retries,
                 )
                 smart.type = "album"
                 smart.album = album
@@ -492,7 +567,7 @@ class SpoLogin:
                     pad_tracks=pad_tracks,
                     initial_retry_delay=initial_retry_delay,
                     retry_delay_increase=retry_delay_increase,
-                    max_retries=max_retries
+                    max_retries=max_retries,
                 )
                 smart.type = "playlist"
                 smart.playlist = playlist
@@ -514,7 +589,7 @@ class SpoLogin:
                     pad_tracks=pad_tracks,
                     initial_retry_delay=initial_retry_delay,
                     retry_delay_increase=retry_delay_increase,
-                    max_retries=max_retries
+                    max_retries=max_retries,
                 )
                 smart.type = "episode"
                 smart.episode = episode
